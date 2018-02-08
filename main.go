@@ -74,7 +74,7 @@ type pagedResponse struct {
 
 func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync.WaitGroup) {
 	for idx, m := range cfg.Metrics {
-		go func() {
+		go func(idx int, m metricConfiguration) {
 			timer := time.NewTicker(m.ParsedInterval)
 			params := url.Values{}
 			params.Set("jql", m.JQL)
@@ -86,39 +86,43 @@ func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync
 			defer timer.Stop()
 		loop:
 			for {
+				var resp *http.Response
+				pr := pagedResponse{}
+				log.Debugf("Checking %s", m.Name)
+				r, err := http.NewRequest(http.MethodGet, u, nil)
+				if err != nil {
+					log.WithError(err).Errorf("Failed to create HTTP request with URL = %s", u)
+					goto next
+				}
+				r.SetBasicAuth(cfg.Login, cfg.Password)
+				resp, err = client.Do(r)
+				if err != nil {
+					log.WithError(err).WithField("url", u).Errorf("Failed to execute HTTP request")
+					goto next
+				}
+				if resp.StatusCode != http.StatusOK {
+					resp.Body.Close()
+					log.WithField("url", u).Errorf("HTTP response had status %d instead of 200", resp.StatusCode)
+					goto next
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+					resp.Body.Close()
+					log.WithError(err).WithField("url", u).Errorf("Failed to parse HTTP response")
+					goto next
+				}
+				resp.Body.Close()
+				cfg.Metrics[idx].Gauge.Set(float64(pr.Total))
+				log.Debugf("Completed %s: %v", m.Name, pr.Total)
+			next:
 				select {
 				case <-timer.C:
 				case <-ctx.Done():
 					break loop
 				}
-				r, err := http.NewRequest(http.MethodGet, u, nil)
-				if err != nil {
-					log.WithError(err).Errorf("Failed to create HTTP request with URL = %s", u)
-					continue
-				}
-				r.SetBasicAuth(cfg.Login, cfg.Password)
-				pr := pagedResponse{}
-				resp, err := client.Do(r)
-				if err != nil {
-					log.WithError(err).WithField("url", u).Errorf("Failed to execute HTTP request")
-					continue
-				}
-				if resp.StatusCode != http.StatusOK {
-					resp.Body.Close()
-					log.WithField("url", u).Errorf("HTTP response had status %d instead of 200", resp.StatusCode)
-					continue
-				}
-				if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
-					resp.Body.Close()
-					log.WithError(err).WithField("url", u).Errorf("Failed to parse HTTP response")
-					continue
-				}
-				resp.Body.Close()
-				cfg.Metrics[idx].Gauge.Set(float64(pr.Total))
 			}
 			log.Infof("Stopping worker for %s", m.Name)
 			defer wg.Done()
-		}()
+		}(idx, m)
 	}
 }
 
