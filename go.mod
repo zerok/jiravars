@@ -1,4 +1,4 @@
-module github.com/Nighthawk22/jiravars
+module github.com/zerok/jiravars
 
 go 1.12
 
