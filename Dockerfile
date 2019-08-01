@@ -15,7 +15,7 @@ FROM alpine:3.10
 EXPOSE 9300
 ENTRYPOINT ["/jiravars"]
 
-RUN addgroup -S app && adduser -S app -G app
+RUN apk add ca-certificates && addgroup -S app && adduser -S app -G app
 
 USER app
 
