@@ -22,10 +22,11 @@ import (
 )
 
 type metricConfiguration struct {
-	Name           string `yaml:"name"`
-	Help           string `yaml:"help"`
-	JQL            string `yaml:"jql"`
-	Interval       string `yaml:"interval"`
+	Name           string            `yaml:"name"`
+	Help           string            `yaml:"help"`
+	JQL            string            `yaml:"jql"`
+	Interval       string            `yaml:"interval"`
+	Labels         map[string]string `yaml:"labels"`
 	ParsedInterval time.Duration
 	Gauge          prometheus.Gauge
 }
@@ -129,8 +130,9 @@ func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync
 func setupGauges(metrics []metricConfiguration) error {
 	for i := 0; i < len(metrics); i++ {
 		metrics[i].Gauge = prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: fmt.Sprintf("jira_%s", metrics[i].Name),
-			Help: metrics[i].Help,
+			Name:        fmt.Sprintf("jira_%s", metrics[i].Name),
+			ConstLabels: metrics[i].Labels,
+			Help:        metrics[i].Help,
 		})
 		if err := prometheus.Register(metrics[i].Gauge); err != nil {
 			return err
