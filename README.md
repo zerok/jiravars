@@ -47,3 +47,14 @@ If you want to use something like [tpl][] to make your configuration a bit more 
 you can set `--config -` to make jiravars read its configuration from stdin.
 
 [tpl]: https://github.com/zerok/tpl
+
+
+## Custom http headers
+
+It is possible to add custom http headers to be send with each Jira request. 
+Therefore the config can contain a httpHeader section:
+
+```
+httpHeaders:
+  X-Custom-Header: custom-value
+```

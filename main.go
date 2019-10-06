@@ -32,10 +32,11 @@ type metricConfiguration struct {
 }
 
 type configuration struct {
-	BaseURL  string                `yaml:"baseURL"`
-	Login    string                `yaml:"login"`
-	Password string                `yaml:"password"`
-	Metrics  []metricConfiguration `yaml:"metrics"`
+	BaseURL     string                `yaml:"baseURL"`
+	Login       string                `yaml:"login"`
+	Password    string                `yaml:"password"`
+	Metrics     []metricConfiguration `yaml:"metrics"`
+	HTTPHeaders map[string]string     `yaml:"httpHeaders"`
 }
 
 func loadConfiguration(path string) (*configuration, error) {
@@ -73,6 +74,12 @@ type pagedResponse struct {
 	Total uint64 `json:"total"`
 }
 
+func addHeaders(r *http.Request, headers map[string]string) {
+	for k, v := range headers {
+		r.Header.Set(k, v)
+	}
+}
+
 func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync.WaitGroup) {
 	for idx, m := range cfg.Metrics {
 		go func(idx int, m metricConfiguration) {
@@ -91,6 +98,7 @@ func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync
 				pr := pagedResponse{}
 				log.Debugf("Checking %s", m.Name)
 				r, err := http.NewRequest(http.MethodGet, u, nil)
+				addHeaders(r, cfg.HTTPHeaders)
 				if err != nil {
 					log.WithError(err).Errorf("Failed to create HTTP request with URL = %s", u)
 					goto next
