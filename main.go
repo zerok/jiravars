@@ -34,7 +34,6 @@ type metricConfiguration struct {
 type configuration struct {
 	BaseURL     string                `yaml:"baseURL"`
 	Login       string                `yaml:"login"`
-	Password    string                `yaml:"password"`
 	Metrics     []metricConfiguration `yaml:"metrics"`
 	HTTPHeaders map[string]string     `yaml:"httpHeaders"`
 }
@@ -80,7 +79,7 @@ func addHeaders(r *http.Request, headers map[string]string) {
 	}
 }
 
-func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync.WaitGroup) {
+func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync.WaitGroup, jiraPassword string) {
 	for idx, m := range cfg.Metrics {
 		go func(idx int, m metricConfiguration) {
 			timer := time.NewTicker(m.ParsedInterval)
@@ -103,7 +102,7 @@ func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync
 					log.WithError(err).Errorf("Failed to create HTTP request with URL = %s", u)
 					goto next
 				}
-				r.SetBasicAuth(cfg.Login, cfg.Password)
+				r.SetBasicAuth(cfg.Login, jiraPassword)
 				resp, err = client.Do(r)
 				if err != nil {
 					log.WithError(err).WithField("url", u).Errorf("Failed to execute HTTP request")
@@ -170,6 +169,11 @@ func main() {
 		log.Fatal("Please specify a config file using --config CONFIG_FILE")
 	}
 
+	jiraPassword := os.Getenv("JIRA_PASSWORD")
+	if jiraPassword == "" {
+		log.Fatal("Please specify a JIRA_PASSWORD via environment variable")
+	}
+
 	cfg, err := loadConfiguration(configFile)
 	if err != nil {
 		log.WithError(err).Fatalf("Failed to load config from %s", configFile)
@@ -193,7 +197,7 @@ func main() {
 		defer wg.Done()
 	}()
 
-	go check(ctx, log, cfg, &wg)
+	go check(ctx, log, cfg, &wg, jiraPassword)
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
