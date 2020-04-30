@@ -34,6 +34,7 @@ type metricConfiguration struct {
 type configuration struct {
 	BaseURL     string                `yaml:"baseURL"`
 	Login       string                `yaml:"login"`
+	Password    string                `yaml:"-"`
 	Metrics     []metricConfiguration `yaml:"metrics"`
 	HTTPHeaders map[string]string     `yaml:"httpHeaders"`
 }
@@ -79,7 +80,7 @@ func addHeaders(r *http.Request, headers map[string]string) {
 	}
 }
 
-func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync.WaitGroup, jiraPassword string) {
+func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync.WaitGroup) {
 	for idx, m := range cfg.Metrics {
 		go func(idx int, m metricConfiguration) {
 			timer := time.NewTicker(m.ParsedInterval)
@@ -102,7 +103,7 @@ func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync
 					log.WithError(err).Errorf("Failed to create HTTP request with URL = %s", u)
 					goto next
 				}
-				r.SetBasicAuth(cfg.Login, jiraPassword)
+				r.SetBasicAuth(cfg.Login, cfg.Password)
 				resp, err = client.Do(r)
 				if err != nil {
 					log.WithError(err).WithField("url", u).Errorf("Failed to execute HTTP request")
@@ -197,7 +198,7 @@ func main() {
 		defer wg.Done()
 	}()
 
-	go check(ctx, log, cfg, &wg, jiraPassword)
+	go check(ctx, log, cfg, &wg)
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
