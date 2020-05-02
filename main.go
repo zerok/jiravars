@@ -170,14 +170,14 @@ func main() {
 		log.Fatal("Please specify a config file using --config CONFIG_FILE")
 	}
 
-	jiraPassword := os.Getenv("JIRA_PASSWORD")
-	if jiraPassword == "" {
-		log.Fatal("Please specify a JIRA_PASSWORD via environment variable")
-	}
-
 	cfg, err := loadConfiguration(configFile)
 	if err != nil {
 		log.WithError(err).Fatalf("Failed to load config from %s", configFile)
+	}
+
+	cfg.Password = os.Getenv("JIRA_PASSWORD")
+	if cfg.Password == "" {
+		log.Fatal("Please specify a JIRA_PASSWORD via environment variable")
 	}
 
 	if err := setupGauges(cfg.Metrics); err != nil {
