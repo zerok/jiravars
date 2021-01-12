@@ -13,13 +13,15 @@ issues is exported as a Gauge to Prometheus.
 ## Configuration
 
 The configuration is rather minimal: All you need are some JIRA credentials and
-the metrics that you want to collect. The JIRA password needs to be passed via environment variable `JIRA_PASSWORD`.
+the metrics that you want to collect. The JIRA password can optonally be passed 
+via environment variable `JIRA_PASSWORD`.
 
 Sample configuration:
 
 ```
 baseURL: https://jira.company.net
 login: "{{ vault "secret/accounts/work/me" "login"}}"
+password: "{{ vault "secret/accounts/work/me" "password"}}"
 metrics:
     - name: taa_backlog_size
       help: Number of items inside our backlog

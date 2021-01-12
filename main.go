@@ -34,7 +34,7 @@ type metricConfiguration struct {
 type configuration struct {
 	BaseURL     string                `yaml:"baseURL"`
 	Login       string                `yaml:"login"`
-	Password    string                `yaml:"-"`
+	Password    string                `yaml:"password"`
 	Metrics     []metricConfiguration `yaml:"metrics"`
 	HTTPHeaders map[string]string     `yaml:"httpHeaders"`
 }
@@ -175,9 +175,12 @@ func main() {
 		log.WithError(err).Fatalf("Failed to load config from %s", configFile)
 	}
 
-	cfg.Password = os.Getenv("JIRA_PASSWORD")
 	if cfg.Password == "" {
-		log.Fatal("Please specify a JIRA_PASSWORD via environment variable")
+		cfg.Password = os.Getenv("JIRA_PASSWORD")
+	}
+
+	if cfg.Password == "" {
+		log.Fatal("Please specify a jira password via configuration or JIRA_PASSWORD environment variable")
 	}
 
 	if err := setupGauges(cfg.Metrics); err != nil {
