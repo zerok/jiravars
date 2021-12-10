@@ -135,14 +135,14 @@ func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync
 	}
 }
 
-func setupGauges(metrics []metricConfiguration) error {
+func setupGauges(registry prometheus.Registerer, metrics []metricConfiguration) error {
 	for i := 0; i < len(metrics); i++ {
 		metrics[i].Gauge = prometheus.NewGauge(prometheus.GaugeOpts{
 			Name:        fmt.Sprintf("jira_%s", metrics[i].Name),
 			ConstLabels: metrics[i].Labels,
 			Help:        metrics[i].Help,
 		})
-		if err := prometheus.Register(metrics[i].Gauge); err != nil {
+		if err := registry.Register(metrics[i].Gauge); err != nil {
 			return err
 		}
 	}
@@ -183,7 +183,7 @@ func main() {
 		log.Fatal("Please specify a jira password via configuration or JIRA_PASSWORD environment variable")
 	}
 
-	if err := setupGauges(cfg.Metrics); err != nil {
+	if err := setupGauges(prometheus.DefaultRegisterer, cfg.Metrics); err != nil {
 		log.WithError(err).Fatal("Failed to setup gauges")
 	}
 

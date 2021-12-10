@@ -20,7 +20,7 @@ jobs:
           path: |
             ~/go/pkg/mod
           key: ${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-      - run: go test ./... -v
+      - run: go test ./... -v -cover
   build:
     runs-on: ubuntu-latest
     steps:
