@@ -19,7 +19,7 @@ jobs:
         with:
           path: |
             ~/go/pkg/mod
-        key: ${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-${{ hashFiles('**/go.sum') }}
       - run: go test ./... -v
   build:
     runs-on: ubuntu-latest
@@ -32,6 +32,6 @@ jobs:
         with:
           path: |
             ~/go/pkg/mod
-        key: ${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-${{ hashFiles('**/go.sum') }}
       - run: go build
 
