@@ -80,16 +80,17 @@ func addHeaders(r *http.Request, headers map[string]string) {
 	}
 }
 
-func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync.WaitGroup) {
+func check(ctx context.Context, log *logrus.Logger, cfg *configuration, client *http.Client) {
+	wg := sync.WaitGroup{}
+	wg.Add(len(cfg.Metrics))
 	for idx, m := range cfg.Metrics {
 		go func(idx int, m metricConfiguration) {
+			defer wg.Done()
 			timer := time.NewTicker(m.ParsedInterval)
 			params := url.Values{}
 			params.Set("jql", m.JQL)
 			params.Set("maxResults", "0")
 			u := fmt.Sprintf("%s/rest/api/2/search?%s", cfg.BaseURL, params.Encode())
-
-			client := http.Client{}
 
 			defer timer.Stop()
 		loop:
@@ -130,9 +131,9 @@ func check(ctx context.Context, log *logrus.Logger, cfg *configuration, wg *sync
 				}
 			}
 			log.Infof("Stopping worker for %s", m.Name)
-			defer wg.Done()
 		}(idx, m)
 	}
+	wg.Wait()
 }
 
 func setupGauges(registry prometheus.Registerer, metrics []metricConfiguration) error {
@@ -148,6 +149,7 @@ func setupGauges(registry prometheus.Registerer, metrics []metricConfiguration) 
 	}
 	return nil
 }
+
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -190,6 +192,7 @@ func main() {
 	sigChan := make(chan os.Signal)
 	signal.Notify(sigChan, syscall.SIGINT)
 	httpServer := http.Server{}
+	httpClient := http.Client{}
 
 	wg := sync.WaitGroup{}
 	wg.Add(len(cfg.Metrics) + 2)
@@ -201,7 +204,10 @@ func main() {
 		defer wg.Done()
 	}()
 
-	go check(ctx, log, cfg, &wg)
+	go func() {
+		defer wg.Done()
+		check(ctx, log, cfg, &httpClient)
+	}()
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())

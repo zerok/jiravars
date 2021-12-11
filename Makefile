@@ -11,6 +11,10 @@ jiravars-linux: $(shell find . -name '*.go')
 
 linux: jiravars-linux
 
+test:
+	go test ./... -v -cover
+
 .PHONY: clean
 .PHONY: all
 .PHONY: linux
+.PHONY: test
