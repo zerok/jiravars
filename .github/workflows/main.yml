@@ -34,7 +34,7 @@ jobs:
             ~/go/pkg/mod
           key: ${{ runner.os }}-${{ hashFiles('**/go.sum') }}
       - name: Build snapshot
-        uses: goreleaser/goreleaser-action@v2
+        uses: goreleaser/goreleaser-action@v6
         with:
           args: --snapshot --rm-dist
 
