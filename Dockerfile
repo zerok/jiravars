@@ -1,4 +1,4 @@
-FROM golang:1.17-alpine as builder
+FROM golang:1.22.5-alpine as builder
 
 WORKDIR /go/src/github.com/zerok/jiravars
 COPY . .
@@ -7,7 +7,7 @@ RUN apk add git && \
     CGO_ENABLED=0 go build -ldflags '-s -w' -o /jiravars
 
 
-FROM alpine:3.15
+FROM alpine:3.18
 
 EXPOSE 9300
 ENTRYPOINT ["/jiravars"]
