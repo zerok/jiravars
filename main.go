@@ -21,6 +21,23 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+// Define Jira API response types at the top
+type Component struct {
+	Name string `json:"name"`
+}
+
+type IssueFields struct {
+	Components []Component `json:"components"`
+}
+
+type Issue struct {
+	Fields IssueFields `json:"fields"`
+}
+
+type JiraResponse struct {
+	Issues []Issue `json:"issues"`
+}
+
 type metricConfiguration struct {
 	Name           string            `yaml:"name"`
 	Help           string            `yaml:"help"`
@@ -28,7 +45,7 @@ type metricConfiguration struct {
 	Interval       string            `yaml:"interval"`
 	Labels         map[string]string `yaml:"labels"`
 	ParsedInterval time.Duration
-	Gauge          prometheus.Gauge
+	GaugeVec       *prometheus.GaugeVec // Changed to GaugeVec for labels
 }
 
 type configuration struct {
@@ -57,7 +74,6 @@ func loadConfiguration(path string) (*configuration, error) {
 	}
 
 	for i := 0; i < len(cfg.Metrics); i++ {
-		// Set a default value of 5 minutes if none has been specified.
 		if cfg.Metrics[i].Interval == "" {
 			cfg.Metrics[i].Interval = "5m"
 		}
@@ -68,10 +84,6 @@ func loadConfiguration(path string) (*configuration, error) {
 		cfg.Metrics[i].ParsedInterval = dur
 	}
 	return cfg, nil
-}
-
-type pagedResponse struct {
-	Total uint64 `json:"total"`
 }
 
 func addHeaders(r *http.Request, headers map[string]string) {
@@ -87,43 +99,58 @@ func check(ctx context.Context, log *logrus.Logger, cfg *configuration, client *
 		go func(idx int, m metricConfiguration) {
 			defer wg.Done()
 			timer := time.NewTicker(m.ParsedInterval)
-			params := url.Values{}
-			params.Set("jql", m.JQL)
-			params.Set("maxResults", "0")
-			u := fmt.Sprintf("%s/rest/api/2/search?%s", cfg.BaseURL, params.Encode())
-
 			defer timer.Stop()
+
 		loop:
 			for {
-				var resp *http.Response
-				pr := pagedResponse{}
-				log.Debugf("Checking %s", m.Name)
-				r, err := http.NewRequest(http.MethodGet, u, nil)
-				addHeaders(r, cfg.HTTPHeaders)
-				if err != nil {
-					log.WithError(err).Errorf("Failed to create HTTP request with URL = %s", u)
-					goto next
-				}
-				r.SetBasicAuth(cfg.Login, cfg.Password)
-				resp, err = client.Do(r)
-				if err != nil {
-					log.WithError(err).WithField("url", u).Errorf("Failed to execute HTTP request")
-					goto next
-				}
-				if resp.StatusCode != http.StatusOK {
-					resp.Body.Close()
-					log.WithField("url", u).Errorf("HTTP response had status %d instead of 200", resp.StatusCode)
-					goto next
-				}
-				if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
-					resp.Body.Close()
-					log.WithError(err).WithField("url", u).Errorf("Failed to parse HTTP response")
-					goto next
-				}
-				resp.Body.Close()
-				cfg.Metrics[idx].Gauge.Set(float64(pr.Total))
-				log.Debugf("Completed %s: %v", m.Name, pr.Total)
-			next:
+				func() { // Wrap in a closure to avoid goto jumping over declarations
+					params := url.Values{}
+					params.Set("jql", m.JQL)
+					params.Set("maxResults", "100")
+					params.Set("fields", "components")
+					u := fmt.Sprintf("%s/rest/api/2/search?%s", cfg.BaseURL, params.Encode())
+
+					log.Debugf("Checking %s", m.Name)
+					r, err := http.NewRequest(http.MethodGet, u, nil)
+					if err != nil {
+						log.WithError(err).Errorf("Failed to create request for %s", u)
+						return
+					}
+					addHeaders(r, cfg.HTTPHeaders)
+					r.SetBasicAuth(cfg.Login, cfg.Password)
+
+					resp, err := client.Do(r)
+					if err != nil {
+						log.WithError(err).Error("Request failed")
+						return
+					}
+					defer resp.Body.Close()
+
+					if resp.StatusCode != http.StatusOK {
+						log.Errorf("Received status %d for %s", resp.StatusCode, u)
+						return
+					}
+
+					var result JiraResponse
+					if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+						log.WithError(err).Error("Failed to decode response")
+						return
+					}
+
+					// Count components
+					componentCounts := make(map[string]float64)
+					for _, issue := range result.Issues {
+						for _, comp := range issue.Fields.Components {
+							componentCounts[comp.Name]++
+						}
+					}
+
+					// Update metrics
+					for comp, count := range componentCounts {
+						cfg.Metrics[idx].GaugeVec.WithLabelValues(comp).Set(count)
+					}
+				}()
+
 				select {
 				case <-timer.C:
 				case <-ctx.Done():
@@ -138,12 +165,20 @@ func check(ctx context.Context, log *logrus.Logger, cfg *configuration, client *
 
 func setupGauges(registry prometheus.Registerer, metrics []metricConfiguration) error {
 	for i := 0; i < len(metrics); i++ {
-		metrics[i].Gauge = prometheus.NewGauge(prometheus.GaugeOpts{
-			Name:        fmt.Sprintf("jira_%s", metrics[i].Name),
-			ConstLabels: metrics[i].Labels,
-			Help:        metrics[i].Help,
-		})
-		if err := registry.Register(metrics[i].Gauge); err != nil {
+		labelNames := make([]string, 0, len(metrics[i].Labels))
+		for k := range metrics[i].Labels {
+			labelNames = append(labelNames, k)
+		}
+
+		metrics[i].GaugeVec = prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name:        fmt.Sprintf("jira_%s", metrics[i].Name),
+				Help:        metrics[i].Help,
+			},
+			labelNames,
+		)
+
+		if err := registry.Register(metrics[i].GaugeVec); err != nil {
 			return err
 		}
 	}
@@ -157,9 +192,9 @@ func main() {
 	var configFile string
 	var addr string
 	var verbose bool
-	pflag.StringVar(&configFile, "config", "", "Path to a configuration file")
-	pflag.StringVar(&addr, "http-addr", "127.0.0.1:9300", "Address the HTTP server should be listening on")
-	pflag.BoolVar(&verbose, "verbose", false, "Verbose logging")
+	pflag.StringVar(&configFile, "config", "", "Path to configuration file")
+	pflag.StringVar(&addr, "http-addr", "127.0.0.1:9300", "HTTP server address")
+	pflag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	pflag.Parse()
 
 	if verbose {
@@ -169,59 +204,54 @@ func main() {
 	}
 
 	if configFile == "" {
-		log.Fatal("Please specify a config file using --config CONFIG_FILE")
+		log.Fatal("--config flag is required")
 	}
 
 	cfg, err := loadConfiguration(configFile)
 	if err != nil {
-		log.WithError(err).Fatalf("Failed to load config from %s", configFile)
+		log.WithError(err).Fatal("Failed to load config")
 	}
 
 	if cfg.Password == "" {
 		cfg.Password = os.Getenv("JIRA_PASSWORD")
-	}
-
-	if cfg.Password == "" {
-		log.Fatal("Please specify a jira password via configuration or JIRA_PASSWORD environment variable")
+		if cfg.Password == "" {
+			log.Fatal("JIRA_PASSWORD environment variable not set")
+		}
 	}
 
 	if err := setupGauges(prometheus.DefaultRegisterer, cfg.Metrics); err != nil {
 		log.WithError(err).Fatal("Failed to setup gauges")
 	}
 
-	sigChan := make(chan os.Signal)
-	signal.Notify(sigChan, syscall.SIGINT)
-	httpServer := http.Server{}
-	httpClient := http.Client{}
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	httpServer := &http.Server{Addr: addr}
+	httpClient := &http.Client{}
 
 	wg := sync.WaitGroup{}
-	wg.Add(len(cfg.Metrics) + 2)
+	wg.Add(2)
+
 	go func() {
+		defer wg.Done()
 		<-sigChan
 		log.Info("Shutting down...")
 		httpServer.Close()
 		cancel()
-		defer wg.Done()
 	}()
 
 	go func() {
 		defer wg.Done()
-		check(ctx, log, cfg, &httpClient)
+		check(ctx, log, cfg, httpClient)
 	}()
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	httpServer.Handler = mux
-	httpServer.Addr = addr
 
-	go func() {
-		defer wg.Done()
-		log.Infof("Starting server on %s", addr)
-		if err := httpServer.ListenAndServe(); err != nil {
-			cancel()
-			log.WithError(err).Error("Server stopped")
-		}
-	}()
+	log.Infof("Starting server on %s", addr)
+	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.WithError(err).Fatal("HTTP server failed")
+	}
 
 	wg.Wait()
 }
