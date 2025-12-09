@@ -7,7 +7,7 @@ RUN apk add git && \
     CGO_ENABLED=0 go build -ldflags '-s -w' -o /jiravars
 
 
-FROM alpine:3.22
+FROM alpine:3.23
 
 EXPOSE 9300
 ENTRYPOINT ["/jiravars"]
