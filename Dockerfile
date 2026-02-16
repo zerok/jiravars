@@ -1,4 +1,4 @@
-FROM golang:1.25.7-alpine as builder
+FROM golang:1.26.0-alpine as builder
 
 WORKDIR /go/src/github.com/zerok/jiravars
 COPY . .
